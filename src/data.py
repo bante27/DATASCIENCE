@@ -1,7 +1,7 @@
 # src/preprocessing.py
 import pandas as pd
 import numpy as np
-import os
+import json, os
 import missingno as msno
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -67,6 +67,7 @@ class DataPreprocessor:
         plt.title("Class Distribution")
         plt.show()
         print(f"Class distribution:\n{df[target].value_counts()}")
+        
 
     # ------------------ HANDLE MISSING VALUES ------------------
     def handle_missing_values(self, df, zero_cols=None, drop_threshold=0.3):
@@ -238,4 +239,104 @@ class DataPreprocessor:
         df.to_csv(output_path, index=False)
         print(f"\n✅ FINAL DATA SAVED: {output_path}")
         print(f"Final shape: {df.shape}")
+    def export_data_summary(self, df, output_path="../data/data_summary.json", target='Class'):
+        """
+        Exports detailed dataset summary in JSON format
+        matching the provided structure.
+        """
+
+
+        summary = {}
+
+        # ------------------ Dataset Info ------------------
+        summary["dataset_info"] = {
+            "shape": list(df.shape),
+            "columns": list(df.columns),
+            "dtypes": df.dtypes.astype(str).to_dict(),
+            "memory_usage": df.memory_usage(deep=True).sum() / (1024 ** 2)
+        }
+
+        # ------------------ Missing Values ------------------
+        missing_counts = df.isnull().sum()
+        missing_pct = (missing_counts / len(df)) * 100
+        missing_nan = {
+            "Missing Count": missing_counts.to_dict(),
+            "Percentage": missing_pct.round(2).to_dict()
+        }
+
+        # ------------------ Impossible Zeros ------------------
+        impossible_zero_info = {}
+        for col in df.select_dtypes(include=[np.number]).columns:
+            if col != target:
+                zeros = (df[col] == 0).sum()
+                if zeros > 0:
+                    impossible_zero_info[col] = {
+                        "count": int(zeros),
+                        "percentage": (zeros / len(df)) * 100
+                    }
+
+        total_missing = int(df.isnull().sum().sum())
+
+        summary["missing_values"] = {
+            "missing_nan": missing_nan,
+            "impossible_zeros": impossible_zero_info,
+            "total_missing_values": total_missing
+        }
+
+        # ------------------ Type Inconsistencies ------------------
+        type_inconsistencies = {}
+        for col in df.columns:
+            try:
+                if df[col].dtype == object:
+                    numeric_like = pd.to_numeric(df[col], errors='coerce')
+                    if numeric_like.notna().sum() > 0 and numeric_like.isna().sum() > 0:
+                        type_inconsistencies[col] = "Mixed types (numeric + string)"
+            except Exception:
+                pass
+        summary["type_inconsistencies"] = type_inconsistencies
+
+        # ------------------ Target Distribution ------------------
+        if target in df.columns:
+            counts = df[target].value_counts().to_dict()
+            total = sum(counts.values())
+            percentages = {str(k): (v / total) * 100 for k, v in counts.items()}
+            imbalance_ratio = (
+                round(max(counts.values()) / min(counts.values()), 4)
+                if len(counts) > 1 else 1
+            )
+            summary["target_distribution"] = {
+                "distribution": counts,
+                "percentages": percentages,
+                "imbalance_ratio": imbalance_ratio
+            }
+
+        # ------------------ Summary Statistics ------------------
+        desc = df.describe(include='all').to_dict()
+        summary["summary_statistics"] = desc
+
+        # ------------------ Correlation Matrix ------------------
+        corr = df.select_dtypes(include=[np.number]).corr().to_dict()
+
+        # Identify high-correlation pairs
+        high_corr_pairs = []
+        corr_matrix = df.select_dtypes(include=[np.number]).corr()
+        for col in corr_matrix.columns:
+            for idx in corr_matrix.index:
+                val = corr_matrix.loc[idx, col]
+                if idx != col and abs(val) > 0.8:
+                    high_corr_pairs.append({f"{idx}-{col}": val})
+
+        summary["correlations"] = {
+            "matrix": corr,
+            "high_correlation_pairs": high_corr_pairs
+        }
+
+        # ------------------ Save JSON ------------------
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(output_path, "w") as f:
+            json.dump(summary, f, indent=4)
+
+        print(f"✅ Data summary exported successfully → {output_path}")
+        return summary
+    
         return df
