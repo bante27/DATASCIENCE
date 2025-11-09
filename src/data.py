@@ -198,7 +198,7 @@ class DataPreprocessor:
 
     # ------------------ FULL PIPELINE ------------------
     def full_pipeline(self, input_path, output_dir="data"):
-        print("🚀 STARTING FULL PIPELINE\n" + "="*60)
+        print(" STARTING FULL PIPELINE\n" + "="*60)
         df = self.load_data(input_path)
         self.check_data_info(df)
 
@@ -215,7 +215,7 @@ class DataPreprocessor:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         output_path = os.path.join(output_dir, f"Cleaned_Diabetes_{timestamp}.csv")
         df.to_csv(output_path, index=False)
-        print(f"\n✅ FINAL DATA SAVED: {output_path}")
+        print(f"\n FINAL DATA SAVED: {output_path}")
         print(f"Final shape: {df.shape}")
 
     # ------------------ EXPORT DATA SUMMARY ------------------
@@ -301,5 +301,5 @@ class DataPreprocessor:
         with open(output_path, "w") as f:
             json.dump(summary, f, indent=4)
 
-        print(f"✅ Data summary exported successfully → {output_path}")
+        print(f" Data summary exported successfully → {output_path}")
         return summary
