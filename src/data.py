@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.feature_selection import SelectKBest, mutual_info_classif
-from sklearn.decomposition import PCA
 from sklearn.impute import KNNImputer
 from imblearn.over_sampling import SMOTE
 from datetime import datetime
@@ -16,7 +15,6 @@ from datetime import datetime
 class DataPreprocessor:
     def __init__(self):
         self.scaler = None
-        self.pca = None
         self.selected_features = []
 
     # ------------------ LOAD DATA ------------------
@@ -73,11 +71,9 @@ class DataPreprocessor:
     def handle_missing_values(self, df, zero_cols=None, drop_threshold=0.3):
         df = df.copy()
         
-        # Columns where 0 should be treated as missing
         if zero_cols is None:
             zero_cols = ['Glucose', 'Diastolic_BP', 'Skin_Fold', 'Serum_Insulin', 'BMI']
 
-        # Replace 0 with NaN for known columns
         for col in zero_cols:
             if col in df.columns:
                 zeros = (df[col] == 0).sum()
@@ -85,17 +81,14 @@ class DataPreprocessor:
                     print(f"Replaced {zeros} zeros in '{col}' → NaN")
                     df[col] = df[col].replace(0, np.nan)
 
-        # Missing % by column
         missing_pct = df.isnull().mean()
         print("\nMISSING VALUE % PER COLUMN:\n", (missing_pct * 100).round(2))
 
-        # Initial numeric columns
         numeric_cols = df.select_dtypes(include=[np.number]).columns
 
-        # Fill or drop columns based on missing %
         for col in numeric_cols:
             if col not in df.columns:
-                continue  # skip columns already dropped
+                continue
             if missing_pct[col] == 0:
                 continue
             elif missing_pct[col] < 0.05:
@@ -108,12 +101,11 @@ class DataPreprocessor:
                 print(f"'{col}': dropped ({missing_pct[col]*100:.1f}%)")
                 df = df.drop(columns=[col])
 
-        # Recalculate numeric columns after drops
         numeric_cols = df.select_dtypes(include=[np.number]).columns
 
-        # Final safety check — use KNN Imputer if some missing remain
         if df[numeric_cols].isnull().sum().sum() > 0:
             print("Running KNN Imputer for remaining missing values...")
+            from sklearn.impute import KNNImputer
             imputer = KNNImputer(n_neighbors=3)
             df[numeric_cols] = imputer.fit_transform(df[numeric_cols])
 
@@ -192,18 +184,6 @@ class DataPreprocessor:
         df_new['Class'] = y.values
         return df_new
 
-    # ------------------ PCA ------------------
-    def apply_pca(self, df, n=6):
-        X = df.drop('Class', axis=1)
-        y = df['Class']
-        self.pca = PCA(n_components=min(n, X.shape[1]))
-        X_pca = self.pca.fit_transform(X)
-        variance = self.pca.explained_variance_ratio_.cumsum()[-1]
-        print(f"PCA: {X_pca.shape[1]} components explain {variance:.1%} variance")
-        df_pca = pd.DataFrame(X_pca, columns=[f'PC{i+1}' for i in range(X_pca.shape[1])])
-        df_pca['Class'] = y.values
-        return df_pca
-
     # ------------------ SMOTE ------------------
     def handle_imbalance(self, df):
         X = df.drop('Class', axis=1)
@@ -215,7 +195,6 @@ class DataPreprocessor:
         df_bal = pd.DataFrame(X_res, columns=X.columns)
         df_bal['Class'] = y_res
         return df_bal
-
 
     # ------------------ FULL PIPELINE ------------------
     def full_pipeline(self, input_path, output_dir="data"):
@@ -230,7 +209,6 @@ class DataPreprocessor:
         df = self.encode_categorical(df)
         df = self.scale_features(df)
         df = self.select_features(df)
-        df = self.apply_pca(df)
         df = self.handle_imbalance(df)
 
         os.makedirs(output_dir, exist_ok=True)
@@ -239,16 +217,11 @@ class DataPreprocessor:
         df.to_csv(output_path, index=False)
         print(f"\n✅ FINAL DATA SAVED: {output_path}")
         print(f"Final shape: {df.shape}")
+
+    # ------------------ EXPORT DATA SUMMARY ------------------
     def export_data_summary(self, df, output_path="../data/data_summary.json", target='Class'):
-        """
-        Exports detailed dataset summary in JSON format
-        matching the provided structure.
-        """
-
-
         summary = {}
 
-        # ------------------ Dataset Info ------------------
         summary["dataset_info"] = {
             "shape": list(df.shape),
             "columns": list(df.columns),
@@ -256,7 +229,6 @@ class DataPreprocessor:
             "memory_usage": df.memory_usage(deep=True).sum() / (1024 ** 2)
         }
 
-        # ------------------ Missing Values ------------------
         missing_counts = df.isnull().sum()
         missing_pct = (missing_counts / len(df)) * 100
         missing_nan = {
@@ -264,7 +236,6 @@ class DataPreprocessor:
             "Percentage": missing_pct.round(2).to_dict()
         }
 
-        # ------------------ Impossible Zeros ------------------
         impossible_zero_info = {}
         for col in df.select_dtypes(include=[np.number]).columns:
             if col != target:
@@ -283,7 +254,6 @@ class DataPreprocessor:
             "total_missing_values": total_missing
         }
 
-        # ------------------ Type Inconsistencies ------------------
         type_inconsistencies = {}
         for col in df.columns:
             try:
@@ -295,7 +265,6 @@ class DataPreprocessor:
                 pass
         summary["type_inconsistencies"] = type_inconsistencies
 
-        # ------------------ Target Distribution ------------------
         if target in df.columns:
             counts = df[target].value_counts().to_dict()
             total = sum(counts.values())
@@ -310,14 +279,11 @@ class DataPreprocessor:
                 "imbalance_ratio": imbalance_ratio
             }
 
-        # ------------------ Summary Statistics ------------------
         desc = df.describe(include='all').to_dict()
         summary["summary_statistics"] = desc
 
-        # ------------------ Correlation Matrix ------------------
         corr = df.select_dtypes(include=[np.number]).corr().to_dict()
 
-        # Identify high-correlation pairs
         high_corr_pairs = []
         corr_matrix = df.select_dtypes(include=[np.number]).corr()
         for col in corr_matrix.columns:
@@ -331,12 +297,9 @@ class DataPreprocessor:
             "high_correlation_pairs": high_corr_pairs
         }
 
-        # ------------------ Save JSON ------------------
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(summary, f, indent=4)
 
         print(f"✅ Data summary exported successfully → {output_path}")
         return summary
-    
-        return df
